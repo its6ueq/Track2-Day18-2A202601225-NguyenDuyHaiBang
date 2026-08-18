@@ -36,6 +36,21 @@ def get_spark(app_name: str = "lakehouse-lab") -> SparkSession:
         .config("spark.sql.shuffle.partitions", "8")
     )
 
+    # Spark creates spark.sql.warehouse.dir eagerly and chmods it. Its default
+    # is ./spark-warehouse, i.e. inside the bind mount — and under WSL2 that
+    # mount is a Windows drive where chmod cannot work, so the very first query
+    # dies before it runs:
+    #
+    #   ExitCodeException exitCode=1: chmod: changing permissions of
+    #   '/workspace/spark-warehouse': Operation not permitted
+    #
+    # Keeping the warehouse off the mount fixes it. Nothing is lost: every table
+    # in this lab is written to s3a://, so the directory only holds an empty
+    # tree. Env-driven so a native (non-container) run keeps Spark's default.
+    warehouse = os.environ.get("SPARK_WAREHOUSE_DIR")
+    if warehouse:
+        builder = builder.config("spark.sql.warehouse.dir", warehouse)
+
     # Ivy needs a writable dir to resolve delta-spark / hadoop-aws. Its default
     # (~/.ivy2) is not writable in the container, which kills the JVM before
     # the Py4J gateway comes up. docker-compose points this at ~/.cache/ivy.

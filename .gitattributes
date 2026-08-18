@@ -1,0 +1,16 @@
+# Windows clones default to core.autocrlf=true, which rewrites every checked-out
+# text file to CRLF. That is fine for the docs, and fatal for anything a Linux
+# shell has to parse — WSL students got a repo whose scripts could not even be
+# read:
+#
+#   setup.sh: line 23: syntax error near unexpected token `$'do\r''
+#   setup.sh: line 4: set: pipefail: invalid option name
+#
+# So pin LF for everything that is executed rather than read. Same file, both
+# host OSes; Windows editors have handled LF for a decade.
+*.sh        text eol=lf
+Makefile    text eol=lf
+*.py        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.ini       text eol=lf

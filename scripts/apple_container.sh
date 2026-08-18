@@ -163,6 +163,7 @@ up() {
     -e "AWS_REGION=us-east-1" \
     -e "PYTHONPATH=$SPARK_PYTHONPATH" \
     -e "SPARK_IVY_DIR=/home/jovyan/.cache/ivy" \
+    -e "SPARK_WAREHOUSE_DIR=/home/jovyan/spark-warehouse" \
     "$SPARK_IMAGE" bash -c '
       set -e
       export PATH="$HOME/.local/bin:$PATH"

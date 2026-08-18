@@ -79,6 +79,9 @@ make simulate  Mô phỏng 12 kịch bản học viên (SIM_FAST=1 để bỏ 2 
 make lab       Mở Jupyter Lab
 make clean     Xoá venv + _lakehouse/
 
+make wsl-setup / wsl-smoke / wsl-lab / wsl-status / wsl-spark-up
+               Chạy trên WSL2 (Windows) — xem mục "Chạy trên WSL2"
+
 make spark-up / spark-smoke / spark-data / spark-down / spark-clean
                Đường Spark/Docker tuỳ chọn (chỉ phủ NB1–NB4)
 ```
@@ -94,6 +97,7 @@ make spark-up / spark-smoke / spark-data / spark-down / spark-clean
 | **Lightweight (mặc định)** | `deltalake` 1.x + `pyiceberg` + DuckDB + Polars | `make setup`, ~20 s | ~600 MB | **cả 8 NB** |
 | **Spark (Docker Compose)** | PySpark 3.5 + delta-spark + MinIO | `make spark-up`, ~3–8 phút | ~6 GB | 4 NB PySpark **+ cả 8 NB lightweight** |
 | **Spark (Apple `container`)** | y hệt trên, chạy bằng `container run` | `make apple-up`, ~3–8 phút | ~6 GB | y hệt trên |
+| **WSL2 (Windows)** | cả hai đường trên, chạy trong distro | `make wsl-setup`, ~30 s (lite) | ~600 MB / ~8 GB | cả 8 NB (lite) hoặc 12 NB (Spark) |
 
 Cả hai ghi ra **cùng định dạng Delta trên đĩa** — đổi qua lại lúc nào cũng đọc được.
 Container Spark nay cài cả stack lightweight, nên bạn chạy được **cả 12 notebook**
@@ -134,6 +138,61 @@ nội bộ. Apple `container` **không phân giải tên** trừ khi bạn tạo
 `container inspect` rồi truyền vào biến `MINIO_ENDPOINT`;
 `scripts/spark_session.py` đọc biến này và **mặc định vẫn là
 `http://minio:9000`** — đường compose không đổi hành vi.
+
+---
+
+### Chạy trên WSL2 (Windows)
+
+WSL là Linux thuần nên `make setup` trông như chạy được ngay — nhưng bảy cái bẫy
+chỉ có ở WSL làm lab hoặc hỏng hẳn hoặc chờ rất lâu. `scripts/wsl.sh`,
+`.gitattributes` và `SPARK_WAREHOUSE_DIR` xử lý cả bảy:
+
+```bash
+# từ PowerShell / Windows Terminal
+wsl -d Ubuntu
+cd /mnt/d/…/Day18-Track2-Lakehouse-Lab     # hoặc clone thẳng vào ~/ cho nhanh
+
+make wsl-status     # distro có gì: python, venv, RAM, docker
+make wsl-setup      # venv + deps (venv nằm trên ext4, không phải /mnt)
+make wsl-smoke      # 9 check offline
+make wsl-lab        # http://localhost:8888 — mở bằng trình duyệt Windows
+```
+
+| Bẫy của WSL | Triệu chứng nếu chạy `make setup` thẳng | Bản vá làm gì |
+|---|---|---|
+| Repo nằm trên ổ Windows (`/mnt/c`, `/mnt/d`) — đó là drvfs, chậm gấp 10–50× ext4 với hàng nghìn file nhỏ; và `.venv` do Windows Python tạo **dùng chung đúng đường dẫn đó** | cài deps lâu gấp nhiều lần; nếu đã `make setup` bên Windows thì `.venv/bin/python` không tồn tại → `cannot execute: required file not found` | Đặt venv ở `~/.cache/day18-lakehouse/venv` (ext4) rồi truyền qua `make VENV=…`. Đổi chỗ bằng `WSL_VENV=~/venvs/day18` |
+| delta-rs ghi Parquet qua `LocalFileSystem` của object_store — ghi file tạm rồi rename, drvfs không chịu nổi bảng blob inline của NB7 | NB1–NB6 qua được, riêng NB7 chết sau ~5 phút: `_internal.DeltaError: Failed to parse parquet: External: Generic LocalFileSystem error: Upload aborted` | Đặt `LAKEHOUSE_ROOT` sang ext4 (`~/.cache/day18-lakehouse/_lakehouse`) — `scripts/lakehouse.py` vốn đã đọc biến này |
+| Ubuntu tách `ensurepip` sang gói `python3-venv` | `python3 -m venv` chết với `ensurepip is not available` — lỗi đổ cho venv chứ không nói thiếu gói nào | Kiểm tra trước, in đúng dòng `sudo apt install -y python3-venv python3-pip` |
+| Ubuntu 26.04 chỉ ship Python **3.14**, mà pyiceberg chưa có wheel cp314 | pip quay sang biên dịch Cython, chạy ~14 phút rồi chết `error: [Errno 2] No such file or directory: 'x86_64-linux-gnu-gcc'` | `pick_python` ưu tiên 3.12/3.13, rồi tới CPython uv nạp; không có cái nào thì dừng sau 0,9 giây kèm 3 lựa chọn cụ thể |
+| WSL2 mặc định cấp guest 50% RAM host; đường Spark cần ~6 GB | container Spark bị OOM-kill giữa job, sau khi đã pull 2 GB image | `spark-up` đọc `/proc/meminfo`, cảnh báo kèm đoạn `.wslconfig` cần sửa **trước** khi pull |
+| Git trên Windows mặc định `core.autocrlf=true` — mọi `.sh` checkout ra CRLF | `setup.sh: line 23: syntax error near unexpected token $'do\r'` | `.gitattributes` ghim `eol=lf` cho `*.sh`, `Makefile`, `*.py`, `*.yml` |
+| Spark tạo `spark-warehouse` ngay trong bind mount rồi `chmod` nó — ổ Windows không cho đổi quyền | mọi job Spark chết: `ExitCodeException exitCode=1: chmod: changing permissions of '/workspace/spark-warehouse': Operation not permitted` | compose đặt `SPARK_WAREHOUSE_DIR=/home/jovyan/spark-warehouse`, `spark_session.py` đọc biến này (native run giữ mặc định Spark) |
+
+> **Kiểm chứng trên WSL2 ngày 18/8/2026** — Ubuntu 26.04 LTS, Docker Desktop 4.78,
+> guest 5 GB RAM / 6 cpu, repo nằm trên ổ `D:`:
+> đường lite `smoke` 9/9 + `pytest` 24/24 trên CPython 3.12 (uv nạp, vì distro chỉ có 3.14);
+> đường Spark `verify.py` xanh 42s, `generate_data.py` ghi 1.000.000 dòng 46s,
+> 4/4 notebook PySpark chạy hết trong container; `run-all` 8/8 notebook lightweight trong 28,8s.
+> Bốn lỗi thật tìm ra từ lần chạy này đã sửa: `spark-warehouse` chmod trên bind mount,
+> `.sh` bị CRLF hoá, pyiceberg không có wheel cp314, và NB7 không ghi nổi Parquet trên drvfs.
+
+Đường Spark trên WSL dùng chính `docker/docker-compose.yml` — chỉ cần bật
+**Docker Desktop → Settings → Resources → WSL integration** cho distro đó
+(hoặc `curl -fsSL https://get.docker.com | sh` để cài engine ngay trong distro):
+
+```bash
+make wsl-spark-up      # = docker compose up -d, kèm check RAM + check daemon
+make wsl-spark-smoke   # scripts/verify.py trong container
+make wsl-spark-down
+```
+
+`make wsl-lab` bind `0.0.0.0` chứ không phải loopback: cơ chế forward localhost
+của WSL2 vẫn phủ `127.0.0.1` ở hầu hết bản Windows, nhưng nó im lặng ngừng hoạt
+động khi tắt mirrored networking hoặc khi VPN chiếm interface — bind `0.0.0.0`
+chạy được cả hai trường hợp.
+
+> Nhanh nhất: `git clone` thẳng vào filesystem Linux (`~/Day18-Track2-Lakehouse-Lab`),
+> lúc đó script dùng luôn `.venv` trong repo và không có drvfs trong đường đi.
 
 ---
 
@@ -199,6 +258,14 @@ Tài liệu là deliverable; code tuỳ chọn. Bài nộp được nhận xét 
 | Quên `make data` / `make data-ai` | Không sao — NB4/NB7/NB8 tự sinh dữ liệu thiếu khi chạy |
 | Mở nhiều notebook cùng lúc trong Jupyter | An toàn: NB5/NB6/NB8 và `make smoke` mỗi cái dùng **catalog Iceberg riêng** |
 | Máy chặn mạng hoàn toàn | Vẫn chạy được. Nếu gặp lỗi tải extension, bạn đang gọi `delta_scan()` — lab dùng Arrow thay thế |
+| WSL: `.sh` báo `syntax error near unexpected token $'do\r'` | File đang là CRLF. Repo đã có `.gitattributes`; checkout cũ sửa bằng `git add --renormalize . && git checkout -- .` |
+| WSL: Spark chết vì `chmod: changing permissions of '/workspace/spark-warehouse'` | Container cũ dựng trước bản vá. `make wsl-spark-down && make wsl-spark-up` |
+| WSL: NB7 chết `Generic LocalFileSystem error: Upload aborted` | Dữ liệu đang nằm trên `/mnt/*`. Dùng `make wsl-run-all` / `scripts/wsl.sh`, hoặc tự đặt `LAKEHOUSE_ROOT=~/.cache/day18-lakehouse/_lakehouse` |
+| WSL: `ensurepip is not available` | Thiếu gói: `sudo apt install -y python3-venv python3-pip` |
+| WSL: `pyiceberg` build lâu rồi chết vì `x86_64-linux-gnu-gcc` | Distro chỉ có Python 3.14 (chưa có wheel cp314). `make wsl-setup` tự chọn 3.12/3.13 hoặc uv; nếu không có thì cài `uv` hoặc `build-essential python3-dev` |
+| WSL: `.venv/bin/python: cannot execute` | Venv đó do Windows Python tạo trong cùng checkout. Dùng `make wsl-setup` (venv riêng trên ext4) |
+| WSL: `make wsl-spark-up` báo không có daemon | Bật Docker Desktop → Settings → Resources → WSL integration cho distro, hoặc `sudo service docker start` |
+| WSL: Spark bị kill giữa job | Guest thiếu RAM. Đặt `[wsl2]` + `memory=8GB` trong `C:\Users\<you>\.wslconfig`, rồi `wsl --shutdown` |
 
 ---
 

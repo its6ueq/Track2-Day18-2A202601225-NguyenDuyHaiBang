@@ -55,6 +55,53 @@ clean: ## [lite] Wipe venv + lakehouse data
 	rm -rf $(VENV) _lakehouse notebooks/.ipynb_checkpoints .pytest_cache
 
 # ─────────────────────────────────────────────────────────────
+# WSL2 on Windows — same two paths, plus the WSL-only guards
+# (venv on ext4 when the repo sits on /mnt/*, python3-venv check, RAM check).
+# Run these INSIDE the distro:  wsl -d Ubuntu
+# ─────────────────────────────────────────────────────────────
+
+WSL := scripts/wsl.sh
+
+wsl-setup: ## [wsl] venv (on ext4) + deps — use instead of `make setup` under WSL
+	@$(WSL) setup
+
+wsl-smoke: ## [wsl] Smoke test against the WSL venv
+	@$(WSL) smoke
+
+wsl-test: ## [wsl] Pytest suite against the WSL venv
+	@$(WSL) test
+
+wsl-data: ## [wsl] Bronze sample for NB4 (lands on ext4, not /mnt)
+	@$(WSL) data
+
+wsl-data-ai: ## [wsl] Multimodal + agent traces for NB7/NB8
+	@$(WSL) data-ai
+
+wsl-run-all: ## [wsl] Execute all 8 notebooks headlessly — the grading gate
+	@$(WSL) run-all
+
+wsl-notebooks: ## [wsl] Execute notebooks/*.ipynb in place so outputs are saved (submission)
+	@$(WSL) notebooks
+
+wsl-lab: ## [wsl] Jupyter Lab bound 0.0.0.0 → http://localhost:8888 from Windows
+	@$(WSL) lab
+
+wsl-status: ## [wsl] Show python / venv / RAM / docker state of this distro
+	@$(WSL) status
+
+wsl-spark-up: ## [wsl] Docker path via Docker Desktop WSL integration
+	@$(WSL) spark-up
+
+wsl-spark-smoke: ## [wsl] scripts/verify.py inside the Spark container
+	@$(WSL) spark-smoke
+
+wsl-spark-down: ## [wsl] Stop the Docker stack
+	@$(WSL) spark-down
+
+wsl-clean: ## [wsl] Delete the WSL venv + generated lab data
+	@$(WSL) clean
+
+# ─────────────────────────────────────────────────────────────
 # Spark on Apple `container` (optional) — macOS 15+, Apple silicon
 # Same 3-service stack as the compose path, driven by `container run`,
 # because Apple's runtime has no compose plugin and no Docker socket.
@@ -103,4 +150,5 @@ spark-clean: ## [spark] Stop AND wipe MinIO + ivy cache
 
 .PHONY: help setup smoke test lab data data-ai run-all clean \
         simulate apple-up apple-smoke apple-data apple-status apple-down apple-clean \
+        wsl-setup wsl-smoke wsl-test wsl-data wsl-data-ai wsl-run-all wsl-notebooks wsl-lab wsl-status wsl-spark-up wsl-spark-smoke wsl-spark-down wsl-clean \
         spark-up spark-smoke spark-data spark-down spark-clean
